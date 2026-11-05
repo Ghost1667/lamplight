@@ -6,9 +6,26 @@
 const cfg = window.LAMPLIGHT_CONFIG || {};
 const configured = !!(cfg.supabaseUrl && cfg.supabaseAnonKey &&
   !/YOUR-/.test(cfg.supabaseUrl) && !/YOUR-/.test(cfg.supabaseAnonKey));
+// Read any sign-in result Supabase put in the address before the app's own router runs.
+const AUTH_HASH = /(^|[#&])(access_token|error|error_code)=/.test(location.hash) ? location.hash : '';
+const authError = (() => {
+  if (!/error/.test(AUTH_HASH)) return null;
+  const p = new URLSearchParams(AUTH_HASH.replace(/^#\/?/, ''));
+  const code = p.get('error_code') || p.get('error') || '';
+  if (/expired|otp/.test(code)) return 'That link has expired or was already used. Sign in, or request a new link below.';
+  return (p.get('error_description') || 'That sign-in link didn\u2019t work.').replace(/\+/g, ' ');
+})();
 const sb = configured && window.supabase && window.supabase.createClient
-  ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
+  ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+      // 'implicit' lets a link sent by email work on a different device from the one that asked for it.
+      auth: { flowType: 'implicit', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true },
+    })
   : null;
+// Where email links should send people: the live site, so they work on any device.
+function siteUrl() {
+  const u = (cfg.siteUrl || '').trim();
+  return u && !/YOUR-/.test(u) ? u : location.origin + location.pathname;
+}
 
 const $ = s => document.querySelector(s);
 const main = $('#main');
@@ -74,6 +91,7 @@ function nextDueAt() { return Object.values(S.cards).map(c => c.due).filter(d =>
 const VIEWS = ['today','subjects','subject','topic','quiz','progress','manage','account','add-learner'];
 function go(path) { if (location.hash === '#/' + path) route(); else location.hash = '#/' + path; }
 function route() {
+  if (/(^|[#&])(access_token|error|error_code)=/.test(location.hash)) return;   // a sign-in link, handled in boot()
   const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
   const [v, p] = h.split('/');
   if (S.view === 'quiz' && v !== 'quiz') { clearInterval(timerId); S.quiz = null; }
@@ -694,7 +712,7 @@ const F = {
   auth: async () => {
     const email = $('#au-email').value.trim(), pass = $('#au-pass')?.value || '', m = S.authMode;
     const btn = $('#au-submit'); btn.disabled = true;
-    const redirectTo = location.origin + location.pathname;
+    const redirectTo = siteUrl();
     let res;
     if (m === 'signin') res = await sb.auth.signInWithPassword({ email, password: pass });
     else if (m === 'signup') res = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: redirectTo } });
@@ -774,7 +792,15 @@ async function boot() {
   });
   const { data } = await sb.auth.getSession();
   await handleSession(data.session);
-  S.ready = true; render();
+  S.ready = true;
+  if (AUTH_HASH) {
+    // Tidy the address bar so the token isn't left in it, then show the right screen.
+    history.replaceState(null, '', location.pathname + location.search + (authError ? '#/account' : '#/today'));
+    if (authError) { S.authMsg = { ok: false, text: authError }; S.authMode = 'signin'; }
+    else if (data.session && !S.recovery) toast('You\u2019re signed in. Your email is confirmed.');
+    route();
+  }
+  render();
 }
 boot();
 })();
