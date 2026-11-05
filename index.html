@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lamplight Revision</title>
+  <meta name="description" content="Revise smarter for school exams, WAEC, NECO and JAMB: short lessons, self-testing, spaced review and timed CBT drills.">
+  <meta name="theme-color" content="#F3F5F4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0D1318" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Kalam:wght@700&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="#/today" aria-label="Lamplight home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11 6h10M16 3v3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/><path d="M10 9h12l-1.5 3h-9z" fill="currentColor"/><path d="M11.5 12h9c1.8 2.2 2.6 4.6 2.6 7.2 0 2.4-.7 4.3-2 5.8h-10.2c-1.3-1.5-2-3.4-2-5.8 0-2.6.8-5 2.6-7.2z" fill="var(--mark)" stroke="currentColor" stroke-width="2"/><path d="M16 15.5c1.6 1.8 1.6 4.2 0 5.6-1.6-1.4-1.6-3.8 0-5.6z" fill="var(--pen)"/><path d="M9 28h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        Lamplight
+      </a>
+      <nav id="tabs" aria-label="Sections"></nav>
+      <div id="who"></div>
+      <div id="acct"></div>
+    </div>
+  </header>
+
+  <main id="main" class="wrap" aria-live="polite">
+    <noscript><p>Lamplight needs JavaScript turned on.</p></noscript>
+  </main>
+
+  <footer class="wrap foot">
+    <span>Lamplight · revise the way memory works.</span>
+  </footer>
+  <div id="toast" role="status" hidden></div>
+
+  <!-- Supabase client (pinned version) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4"></script>
+  <!-- Your project keys -->
+  <script src="js/config.js"></script>
+  <!-- The app -->
+  <script src="js/app.js"></script>
+</body>
+</html>

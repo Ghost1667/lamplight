@@ -1,0 +1,10 @@
+{
+  "name": "Lamplight Revision",
+  "short_name": "Lamplight",
+  "description": "Short lessons, self-testing, spaced review and timed CBT drills.",
+  "start_url": "./#/today",
+  "display": "standalone",
+  "background_color": "#F3F5F4",
+  "theme_color": "#2340C9",
+  "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
