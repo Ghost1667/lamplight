@@ -26,6 +26,8 @@ lamplight/
 3. Open `supabase/schema.sql`, copy all of it, paste it into the editor and press **Run**. You should see "Success. No rows returned".
 4. Make a new query, paste all of `supabase/seed.sql` and press **Run**. This loads 4 subjects, 11 topics and 68 questions. You can run it again later; it won't create duplicates.
 
+**Already set up before 6 November 2026?** Also run `supabase/migrations/001_topic_class.sql` once. It adds the Class setting for topics.
+
 ## 2. Connect the website
 
 1. In Supabase, open **Project Settings → API**.
@@ -73,7 +75,9 @@ Supabase's built-in email sender only sends a few emails per hour, which is fine
    where id = (select id from auth.users where email = 'you@example.com');
    ```
 
-3. Reload the website. A **Manage** tab appears. From there you can add subjects, write lessons and add questions, either one at a time or many at once by pasting one per line:
+3. Reload the website. A **Manage** tab appears. From there you can add subjects, write lessons and add questions, either one at a time or many at once by pasting one per line.
+
+   When you add a topic, the **Class** box decides who sees it: pick one class (for example *JSS 1*) or *All Junior Secondary classes*. Each topic has **Edit** and **Delete** buttons. Deleting a topic also deletes its questions. Bulk-paste format:
 
    ```
    Question | A | B | C | D | correct letter | explanation

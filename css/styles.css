@@ -253,3 +253,6 @@ a.tab,a.link,a.acct-btn{text-decoration:none}
 a.tab{display:inline-block}
 a.acct-btn{color:var(--ink);display:inline-block}
 a.link:hover{text-decoration:underline}
+
+/* manage rows: stack the buttons under the title on phones */
+@media (max-width:560px){.qline{grid-template-columns:1fr}.qline .row{gap:8px}}

@@ -67,6 +67,19 @@ create table if not exists public.topics (
 );
 create index if not exists topics_subject_band_idx on public.topics (subject_id, band);
 
+-- A topic can target one class (e.g. 'JSS 1'); null means every class in its level.
+alter table public.topics add column if not exists class text;
+
+alter table public.topics drop constraint if exists topics_class_valid;
+alter table public.topics add constraint topics_class_valid check (
+  class is null
+  or (band = 'primary' and class in ('Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6'))
+  or (band = 'jss'     and class in ('JSS 1','JSS 2','JSS 3'))
+  or (band = 'sss'     and class in ('SS 1','SS 2','SS 3'))
+);
+
+create index if not exists topics_class_idx on public.topics (subject_id, band, class);
+
 create table if not exists public.questions (
   id           uuid primary key default gen_random_uuid(),
   topic_id     text not null references public.topics (id) on delete cascade,

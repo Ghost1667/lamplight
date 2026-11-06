@@ -73,9 +73,13 @@ function initials(n) { return String(n || '?').split(/\s+/).filter(Boolean).slic
 const learner = () => S.learners[S.active];
 const band = () => learner()?.band;
 const subj = id => S.subjects.find(s => s.id === id);
+const myTopics = sid => topicsFor(sid, band(), learner()?.cls);
+const audience = t => t.class || ('All ' + (BANDS[t.band] || t.band));
 const topic = id => S.topics.find(t => t.id === id);
 const subjectsFor = b => S.subjects.filter(s => !b || (s.bands || []).includes(b));
-const topicsFor = (sid, b) => S.topics.filter(t => t.subject_id === sid && (!b || t.band === b))
+const CLASSES_IN = b => CLASSES.filter(c => bandOf(c) === b);
+// A topic with no class is for every class in its level; otherwise only that class sees it.
+const topicsFor = (sid, b, cls) => S.topics.filter(t => t.subject_id === sid && (!b || t.band === b) && (!cls || !t.class || t.class === cls))
   .sort((x, y) => (x.sort ?? 99) - (y.sort ?? 99) || String(x.title).localeCompare(y.title));
 function topicStats(t) {
   const cs = Object.values(S.cards).filter(c => c.topicId === t.id);
@@ -83,7 +87,7 @@ function topicStats(t) {
   const pct = n ? Math.min(100, Math.round(strong / n * 100)) : 0;
   return { seen: cs.length, n, pct, status: !cs.length ? 'new' : pct >= 70 ? 'strong' : 'learning' };
 }
-function subjectPct(sid, b) { const ts = topicsFor(sid, b); if (!ts.length) return 0; return Math.round(ts.reduce((a, t) => a + topicStats(t).pct, 0) / ts.length); }
+function subjectPct(sid) { const ts = myTopics(sid); if (!ts.length) return 0; return Math.round(ts.reduce((a, t) => a + topicStats(t).pct, 0) / ts.length); }
 function dueList() { const now = Date.now(); return Object.entries(S.cards).filter(([, c]) => c.due <= now).sort((a, b) => a[1].due - b[1].due); }
 function nextDueAt() { return Object.values(S.cards).map(c => c.due).filter(d => d > Date.now()).sort((a, b) => a - b)[0]; }
 
@@ -107,7 +111,7 @@ async function loadLibrary(quiet) {
   if (!quiet) { S.lib = 'loading'; render(); }
   const [s, t] = await Promise.all([
     sb.from('subjects').select('*').order('sort'),
-    sb.from('topics').select('id,subject_id,band,title,summary,sort,questions(count)').order('sort'),
+    sb.from('topics').select('id,subject_id,band,class,title,summary,sort,questions(count)').order('sort'),
   ]);
   if (s.error || t.error) { if (!quiet) { S.lib = 'error'; render(); } return; }
   S.subjects = s.data;
@@ -343,7 +347,7 @@ function todayHTML() {
   const streak = l.lastDay === dayStr() || l.lastDay === dayStr(Date.now() - DAY) ? (l.streak || 0) : 0;
   const nd = nextDueAt();
   const ndText = nd ? (dayStr(nd) === dayStr() ? 'later today' : 'on ' + new Date(nd).toLocaleDateString(undefined, { weekday: 'long' })) : '';
-  const next = S.lib === 'ready' ? subjectsFor(b).flatMap(s => topicsFor(s.id, b).map(t => ({ t, s, st: topicStats(t) })))
+  const next = S.lib === 'ready' ? subjectsFor(b).flatMap(s => myTopics(s.id).map(t => ({ t, s, st: topicStats(t) })))
     .filter(x => x.st.n > 0 && x.st.status !== 'strong')
     .sort((x, y) => (x.st.seen ? 0 : 1) - (y.st.seen ? 0 : 1) || x.st.pct - y.st.pct).slice(0, 4) : [];
   return `<div class="hello"><p class="eyebrow">${esc(l.cls)} · ${BANDS[b]}</p><h1>${greet}, ${esc(l.name)}.</h1></div>
@@ -371,7 +375,7 @@ function subjectsHTML() {
   const b = band(), lib = libraryNotice(), list = S.lib === 'ready' ? subjectsFor(b) : [];
   return `<div class="stack"><p class="eyebrow">${BANDS[b]}</p><h1>Subjects</h1></div>${lib}
   ${S.lib === 'ready' && S.subjects.length && !list.length ? `<div class="panel empty"><h2>No ${BANDS[b]} subjects yet</h2><p class="muted">Lessons for ${esc(learner().cls)} will appear here once they are added.</p></div>` : ''}
-  <div class="grid2">${list.map(s => { const ts = topicsFor(s.id, b), p = subjectPct(s.id, b);
+  <div class="grid2">${list.map(s => { const ts = myTopics(s.id), p = subjectPct(s.id);
     return `<a class="card subj" style="--h:${s.hue ?? 222}" href="#/subject/${encodeURIComponent(s.id)}">
     <div class="head"><span class="swatch">${esc(initials(s.name))}</span><div><h3>${esc(s.name)}</h3><small>${ts.length} topic${ts.length === 1 ? '' : 's'} · ${p}% strong</small></div></div>
     <div class="bar"><i style="width:${p}%"></i></div></a>`; }).join('')}</div>`;
@@ -379,7 +383,7 @@ function subjectsHTML() {
 function subjectHTML() {
   if (S.lib !== 'ready') return libraryNotice();
   const s = subj(S.param); if (!s) return subjectsHTML();
-  const b = band(), ts = topicsFor(s.id, b);
+  const ts = myTopics(s.id);
   return `<div class="crumbs"><a class="link" href="#/subjects">Subjects</a><span>/</span><span>${esc(s.name)}</span></div>
   <div class="section-head subj" style="--h:${s.hue ?? 222}"><div class="row"><span class="swatch">${esc(initials(s.name))}</span><h1>${esc(s.name)}</h1></div>
   ${ts.some(t => t.qCount) ? `<button class="btn" data-action="start-drill" data-id="${esc(s.id)}">Timed drill · 10 min</button>` : ''}</div>
@@ -394,7 +398,7 @@ function topicHTML() {
   const s = subj(t.subject_id) || { name: 'Subject' }, st = topicStats(t), lesson = S.lessons[t.id];
   return `<div class="crumbs"><a class="link" href="#/subjects">Subjects</a><span>/</span><a class="link" href="#/subject/${encodeURIComponent(t.subject_id)}">${esc(s.name)}</a></div>
   <article class="sheet stack">
-    <p class="eyebrow">${esc(s.name)} · ${BANDS[t.band] || ''}</p>
+    <p class="eyebrow">${esc(s.name)} · ${esc(t.class || BANDS[t.band] || '')}</p>
     <h1>${esc(t.title)}</h1>
     ${t.summary ? `<p class="muted" style="font-size:1.05rem">${esc(t.summary)}</p>` : ''}
     <div class="lesson">${typeof lesson === 'string' ? (lessonHTML(lesson) || '<p class="muted">No notes for this topic yet. You can still practise its questions.</p>') : lesson === null ? loadingHTML('Loading the lesson…') : '<p class="muted">The lesson could not be loaded.</p>'}</div>
@@ -430,7 +434,8 @@ async function startQuiz(kind, id) {
       dueList().slice(0, 15).forEach(([qid, c]) => { if (!found.has(qid)) saveCard(qid, { ...c, due: Date.now() + 365 * DAY }); });
     } else {
       title = (subj(id)?.name || 'Subject') + ' drill'; mode = 'drill';
-      res = await sb.from('questions').select('*, topics!inner(subject_id,band)').eq('topics.subject_id', id).eq('topics.band', band()).limit(400);
+      const ids = myTopics(id).map(t => t.id);
+      res = ids.length ? await sb.from('questions').select('*').in('topic_id', ids).limit(400) : { data: [], error: null };
       if (res.error) throw res.error;
       items = shuffle(res.data.map(toItem)).slice(0, 10);
     }
@@ -536,7 +541,7 @@ function progressHTML() {
   <section class="panel stack"><div><h2>Memory boxes</h2><p class="muted">Every question lives in a box. Get it right and it moves up a box and waits longer before coming back. Miss it and it drops to Box 1.</p></div>
     <div class="boxes">${boxes.map((v, i) => `<div class="box"><b>${v}</b><div class="col"><i style="height:${Math.round(v / mx * 100)}%"></i></div><small>Box ${i + 1}<br>every ${INTERVAL_DAYS[i + 1]} day${i ? 's' : ''}</small></div>`).join('')}</div>
   </section>
-  ${S.lib === 'ready' ? `<section class="panel"><h2 style="margin-bottom:8px">By subject</h2>${subjectsFor(b).map(s => { const p = subjectPct(s.id, b);
+  ${S.lib === 'ready' ? `<section class="panel"><h2 style="margin-bottom:8px">By subject</h2>${subjectsFor(b).map(s => { const p = subjectPct(s.id);
     return `<div class="srow subj" style="--h:${s.hue ?? 222}"><b>${esc(s.name)}</b><span class="bar"><i style="width:${p}%"></i></span><span class="num">${p}%</span></div>`; }).join('') || '<p class="muted">No subjects for this class yet.</p>'}</section>` : libraryNotice()}
   <p class="hint">${S.store === 'local' ? 'Progress for this learner is saved on this device. <a class="link" href="#/account">Create an account</a> to keep it safe.' : 'Progress is saved to your account and is private to you.'}</p>`;
 }
@@ -594,18 +599,25 @@ function manageHTML() {
 
   ${S.subjects.length ? `<section class="panel stack"><div class="section-head"><h2>Topics &amp; lessons</h2>
       <div class="field" style="min-width:200px"><label for="m-subject" class="hint">Subject</label><select id="m-subject" data-change="m-subject">${S.subjects.map(s => `<option value="${esc(s.id)}"${s.id === M.subjectId ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div></div>
-    <div class="topics">${ts.map(t => `<div class="qline"><span><b>${esc(t.title)}</b> <small class="muted">· ${BANDS[t.band] || t.band} · ${t.qCount || 0} question${t.qCount === 1 ? '' : 's'}</small></span>
-      <span class="row"><button class="btn ghost small" data-action="m-questions" data-id="${esc(t.id)}">Questions</button><button class="btn ghost small" data-action="m-edit" data-id="${esc(t.id)}">Edit</button></span></div>`).join('') || '<p class="muted">No topics in this subject yet.</p>'}</div>
+    <div class="topics">${ts.map(t => `<div class="qline"><span><b>${esc(t.title)}</b> <small class="muted">· ${esc(audience(t))} · ${t.qCount || 0} question${t.qCount === 1 ? '' : 's'}</small></span>
+      <span class="row"><button class="btn ghost small" data-action="m-questions" data-id="${esc(t.id)}">Questions</button><button class="btn ghost small" data-action="m-edit" data-id="${esc(t.id)}">Edit</button><button class="btn danger small" data-action="del-topic" data-id="${esc(t.id)}">Delete</button></span></div>`).join('') || '<p class="muted">No topics in this subject yet.</p>'}</div>
     <form data-form="topic" class="stack" autocomplete="off">
       <h3 style="font-size:1.05rem">${editing ? `Edit “${esc(editing.title)}”` : 'New topic'}</h3>
       <div class="fields2"><div class="field"><label for="mt-title">Title</label><input type="text" id="mt-title" required maxlength="80" value="${editing ? esc(editing.title) : ''}"></div>
-      <div class="field"><label for="mt-band">Level</label><select id="mt-band">${Object.entries(BANDS).filter(([k]) => (subj(M.subjectId)?.bands || Object.keys(BANDS)).includes(k)).map(([k, v]) => `<option value="${k}"${editing && editing.band === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div></div>
+      <div class="field"><label for="mt-for">Class</label><select id="mt-for" required>${forOptions(subj(M.subjectId)?.bands, editing)}</select></div></div>
       <div class="field"><label for="mt-summary">One-line summary</label><input type="text" id="mt-summary" maxlength="140" value="${editing ? esc(editing.summary || '') : ''}"></div>
       <div class="field"><label for="mt-lesson">Lesson notes</label><textarea id="mt-lesson" rows="10">${editing ? esc(S.lessons[editing.id] || '') : ''}</textarea></div>
       <div class="row"><button class="btn small" type="submit">${editing ? 'Save changes' : 'Add topic'}</button>${editing ? '<button class="btn ghost small" type="button" data-action="m-cancel">Cancel</button>' : ''}</div>
     </form></section>` : ''}
 
   ${M.topicId ? questionsPanel() : ''}`;
+}
+// The "Class" choices: each specific class, plus "All classes" for each level the subject is taught in.
+function forOptions(bands, editing) {
+  const cur = editing ? (editing.class || editing.band) : null;
+  return (editing ? '' : '<option value="" selected disabled>Choose a class</option>') + Object.entries(BANDS).filter(([k]) => (bands?.length ? bands : Object.keys(BANDS)).includes(k)).map(([k, v]) =>
+    `<optgroup label="${v}">${CLASSES_IN(k).map(c => `<option value="${esc(c)}"${cur === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+     <option value="${k}"${cur === k ? ' selected' : ''}>All ${v} classes</option></optgroup>`).join('');
 }
 function questionsPanel() {
   const M = S.manage, t = topic(M.topicId);
@@ -673,9 +685,26 @@ const A = {
     if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Tap again to remove'; setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = 'Remove'; } }, 3500); return; }
     b.disabled = true; await removeLearner(b.dataset.id); toast('Learner removed');
   },
-  'm-edit': async b => { const id = b.dataset.id; await ensureLesson(id); S.manage.edit = id; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-band']); render(); document.getElementById('mt-title')?.scrollIntoView({ block: 'center' }); },
-  'm-cancel': () => { S.manage.edit = null; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-band']); render(); },
+  'm-edit': async b => { const id = b.dataset.id; await ensureLesson(id); S.manage.edit = id; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-for']); render(); document.getElementById('mt-title')?.scrollIntoView({ block: 'center' }); },
+  'm-cancel': () => { S.manage.edit = null; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-for']); render(); },
   'm-questions': async b => { S.manage.topicId = b.dataset.id; await loadManageQuestions(); document.getElementById('q-panel')?.scrollIntoView({ block: 'start' }); },
+  'del-topic': async b => {
+    const t = topic(b.dataset.id); if (!t) return;
+    if (b.dataset.armed !== '1') {
+      b.dataset.armed = '1';
+      b.textContent = t.qCount ? `Delete with ${t.qCount} question${t.qCount === 1 ? '' : 's'}?` : 'Tap again to delete';
+      setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = 'Delete'; } }, 4000);
+      return;
+    }
+    b.disabled = true;
+    const { error } = await sb.from('topics').delete().eq('id', t.id);
+    if (error) { toast(failMsg(error)); b.disabled = false; return; }
+    const M = S.manage;
+    if (M.edit === t.id) { M.edit = null; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-for']); }
+    if (M.topicId === t.id) { M.topicId = null; M.questions = null; }
+    delete S.lessons[t.id];
+    await loadLibrary(true); toast(`Deleted \u201c${t.title}\u201d`);
+  },
   'del-q': async b => {
     if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = 'Delete'; } }, 3500); return; }
     b.disabled = true;
@@ -699,7 +728,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Enter' && q.mode === 'practice' && q.revealed && e.target.tagName !== 'BUTTON') A.next();
 });
 document.addEventListener('change', e => {
-  if (e.target.dataset.change === 'm-subject') { S.manage.subjectId = e.target.value; S.manage.edit = null; S.manage.topicId = null; S.reset = new Set(['mt-band']); render(); }
+  if (e.target.dataset.change === 'm-subject') { S.manage.subjectId = e.target.value; S.manage.edit = null; S.manage.topicId = null; S.reset = new Set(['mt-for']); render(); }
 });
 
 const F = {
@@ -739,11 +768,12 @@ const F = {
   },
   topic: async () => {
     const M = S.manage, sid = M.subjectId, title = $('#mt-title').value.trim(); if (!title || !sid) return;
-    const ex = M.edit ? topic(M.edit) : null, b = $('#mt-band').value;
-    let id = ex ? ex.id : `${sid}-${b}-${slug(title)}`;
+    const ex = M.edit ? topic(M.edit) : null, pick = $('#mt-for').value;
+    const cls = CLASSES.includes(pick) ? pick : null, b = cls ? bandOf(cls) : pick;
+    let id = ex ? ex.id : `${sid}-${slug(cls || b)}-${slug(title)}`;
     if (!ex && topic(id)) id += '-' + Date.now().toString(36).slice(-3);
     const lesson = $('#mt-lesson').value;
-    const row = { id, subject_id: sid, band: b, title, summary: $('#mt-summary').value.trim(), lesson, sort: ex?.sort ?? (topicsFor(sid, b).length + 1) };
+    const row = { id, subject_id: sid, band: b, class: cls, title, summary: $('#mt-summary').value.trim(), lesson, sort: ex?.sort ?? (topicsFor(sid, b).length + 1) };
     const { error } = await sb.from('topics').upsert(row);
     if (error) { toast(failMsg(error)); return; }
     S.lessons[id] = lesson; M.edit = null; S.reset = new Set(['mt-title','mt-summary','mt-lesson']);
