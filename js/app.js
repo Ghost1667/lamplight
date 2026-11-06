@@ -109,10 +109,14 @@ function route() {
 /* --------------------------------------------------------------- library -- */
 async function loadLibrary(quiet) {
   if (!quiet) { S.lib = 'loading'; render(); }
-  const [s, t] = await Promise.all([
+  const cols = 'id,subject_id,band,title,summary,sort,questions(count)';
+  let [s, t] = await Promise.all([
     sb.from('subjects').select('*').order('sort'),
-    sb.from('topics').select('id,subject_id,band,class,title,summary,sort,questions(count)').order('sort'),
+    sb.from('topics').select(cols + ',class').order('sort'),
   ]);
+  // If the database hasn't had the Class update yet, keep working without it.
+  S.needsClassUpdate = !!(t.error && /class/i.test(t.error.message || ''));
+  if (S.needsClassUpdate) t = await sb.from('topics').select(cols).order('sort');
   if (s.error || t.error) { if (!quiet) { S.lib = 'error'; render(); } return; }
   S.subjects = s.data;
   S.topics = t.data.map(x => ({ ...x, qCount: x.questions?.[0]?.count || 0 }));
@@ -587,8 +591,11 @@ function manageHTML() {
   const editing = M.edit ? topic(M.edit) : null;
   return `<div class="stack"><p class="eyebrow">Editors only</p><h1>Manage the library</h1><p class="muted">Students see every change straight away. Write lessons in plain text: start a line with <code>## </code> for a heading, <code>- </code> for a bullet, and wrap words in <code>**bold**</code> or <code>==highlight==</code>.</p></div>
 
+  ${S.needsClassUpdate ? `<div class="form-msg err" role="alert"><b>One database step is missing.</b> Topics can\u2019t be given a class until you run <code>supabase/migrations/001_topic_class.sql</code> in Supabase (SQL Editor \u2192 New query \u2192 paste \u2192 Run). Until then, new topics go to every class in their level.</div>` : ''}
   <section class="panel stack"><h2>Subjects</h2>
-    <div class="chips">${S.subjects.map(s => `<span class="chip subj" style="--h:${s.hue ?? 222}"><span class="swatch">${esc(initials(s.name))}</span>${esc(s.name)} <small class="muted">${(s.bands || []).map(b => BANDS[b]?.split(' ')[0]).join(', ')}</small></span>`).join('') || '<span class="muted">No subjects yet.</span>'}</div>
+    <div class="topics">${S.subjects.map(s => { const n = S.topics.filter(t => t.subject_id === s.id).length;
+      return `<div class="qline subj" style="--h:${s.hue ?? 222}"><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="swatch" style="width:30px;height:30px;font-size:.75rem">${esc(initials(s.name))}</span><span><b>${esc(s.name)}</b> <small class="muted">· ${(s.bands || []).map(b => BANDS[b]?.split(' ')[0]).join(', ')} · ${n} topic${n === 1 ? '' : 's'}</small></span></span>
+      <span class="row"><button class="btn danger small" data-action="del-subject" data-id="${esc(s.id)}">Delete</button></span></div>`; }).join('') || '<p class="muted">No subjects yet.</p>'}</div>
     <form data-form="subject" class="stack" autocomplete="off">
       <div class="fields2"><div class="field"><label for="ms-name">New subject</label><input type="text" id="ms-name" required maxlength="40" placeholder="e.g. Civic Education"></div>
       <div class="field"><label for="ms-hue">Colour</label><select id="ms-hue">${HUES.map(([n, h]) => `<option value="${h}">${n}</option>`).join('')}</select></div></div>
@@ -688,6 +695,25 @@ const A = {
   'm-edit': async b => { const id = b.dataset.id; await ensureLesson(id); S.manage.edit = id; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-for']); render(); document.getElementById('mt-title')?.scrollIntoView({ block: 'center' }); },
   'm-cancel': () => { S.manage.edit = null; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-for']); render(); },
   'm-questions': async b => { S.manage.topicId = b.dataset.id; await loadManageQuestions(); document.getElementById('q-panel')?.scrollIntoView({ block: 'start' }); },
+  'del-subject': async b => {
+    const s = subj(b.dataset.id); if (!s) return;
+    const ts = S.topics.filter(t => t.subject_id === s.id), nq = ts.reduce((a, t) => a + (t.qCount || 0), 0);
+    if (b.dataset.armed !== '1') {
+      b.dataset.armed = '1';
+      b.textContent = ts.length ? `Delete with ${ts.length} topic${ts.length === 1 ? '' : 's'} & ${nq} question${nq === 1 ? '' : 's'}?` : 'Tap again to delete';
+      setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = 'Delete'; } }, 4000);
+      return;
+    }
+    b.disabled = true;
+    const { error } = await sb.from('subjects').delete().eq('id', s.id);
+    if (error) { toast(failMsg(error)); b.disabled = false; return; }
+    const M = S.manage;
+    if (ts.some(t => t.id === M.edit)) { M.edit = null; S.reset = new Set(['mt-title','mt-summary','mt-lesson','mt-for']); }
+    if (ts.some(t => t.id === M.topicId)) { M.topicId = null; M.questions = null; }
+    if (M.subjectId === s.id) M.subjectId = null;
+    ts.forEach(t => delete S.lessons[t.id]);
+    await loadLibrary(true); toast(`Deleted ${s.name}`);
+  },
   'del-topic': async b => {
     const t = topic(b.dataset.id); if (!t) return;
     if (b.dataset.armed !== '1') {
@@ -773,7 +799,7 @@ const F = {
     let id = ex ? ex.id : `${sid}-${slug(cls || b)}-${slug(title)}`;
     if (!ex && topic(id)) id += '-' + Date.now().toString(36).slice(-3);
     const lesson = $('#mt-lesson').value;
-    const row = { id, subject_id: sid, band: b, class: cls, title, summary: $('#mt-summary').value.trim(), lesson, sort: ex?.sort ?? (topicsFor(sid, b).length + 1) };
+    const row = { id, subject_id: sid, band: b, ...(S.needsClassUpdate ? {} : { class: cls }), title, summary: $('#mt-summary').value.trim(), lesson, sort: ex?.sort ?? (topicsFor(sid, b).length + 1) };
     const { error } = await sb.from('topics').upsert(row);
     if (error) { toast(failMsg(error)); return; }
     S.lessons[id] = lesson; M.edit = null; S.reset = new Set(['mt-title','mt-summary','mt-lesson']);
